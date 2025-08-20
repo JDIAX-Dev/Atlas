@@ -506,3 +506,13 @@ window.onclick = function(event) {
         modal.style.display = 'none';
     }
 }
+
+// Fonction pour créer un programme - redirige vers la page de création
+function createProgram(athleteId) {
+    window.location.href = `create_program.php?athlete_id=${athleteId}`;
+}
+
+// Fonction pour modifier un programme (placeholder pour l'instant)
+function editProgram(programId) {
+    window.location.href = `program_planning.php?program_id=${programId}`;
+}
