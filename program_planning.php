@@ -160,6 +160,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
             margin-bottom: 0.5rem;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             transition: transform 0.2s ease;
+            position: relative;
         }
 
         .session-card:hover {
@@ -180,6 +181,36 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
         .session-details {
             font-size: 0.7rem;
             opacity: 0.9;
+        }
+
+        .session-actions {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: none;
+            gap: 0.25rem;
+        }
+
+        .session-card:hover .session-actions {
+            display: flex;
+        }
+
+        .session-action-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .session-action-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
 
         .sessions-library {
@@ -215,6 +246,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
             margin-bottom: 1rem;
             cursor: move;
             transition: all 0.2s ease;
+            position: relative;
         }
 
         .library-session:hover {
@@ -225,6 +257,36 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
         .library-session.dragging {
             opacity: 0.5;
             transform: scale(0.95);
+        }
+
+        .library-session-actions {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .library-action-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .library-action-btn.edit {
+            background: #28a745;
+        }
+
+        .library-action-btn:hover {
+            opacity: 0.8;
         }
 
         .empty-state {
@@ -362,6 +424,12 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
             gap: 1rem;
         }
 
+        .form-row-4 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 1rem;
+        }
+
         @media (max-width: 768px) {
             .program-info {
                 grid-template-columns: 1fr;
@@ -381,7 +449,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
                 grid-template-columns: 1fr;
             }
             
-            .form-row {
+            .form-row, .form-row-4 {
                 grid-template-columns: 1fr;
             }
         }
@@ -468,11 +536,11 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
         <div id="session-modal" class="modal">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h3>➕ Créer des séances</h3>
+                    <h3 id="modal-title">➕ Créer des séances</h3>
                     <span class="close" onclick="closeSessionModal()">&times;</span>
                 </div>
                 <div class="modal-body">
-                    <div class="form-group">
+                    <div class="form-group" id="sessions-count-group">
                         <label for="sessions-count">Nombre de séances à créer</label>
                         <select id="sessions-count" onchange="updateSessionForms()">
                             <option value="1">1 séance</option>
@@ -491,7 +559,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
 
                     <div style="display: flex; gap: 1rem; margin-top: 2rem;">
                         <button class="btn btn-secondary" onclick="closeSessionModal()">Annuler</button>
-                        <button class="btn btn-primary" onclick="createSessions()">Créer les séances</button>
+                        <button class="btn btn-primary" id="save-session-btn" onclick="createSessions()">Créer les séances</button>
                     </div>
                 </div>
             </div>
@@ -509,6 +577,8 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
         };
 
         let sessionsLibrary = [];
+        let placedSessions = [];
+        let currentEditingSession = null;
 
         // Initialisation
         document.addEventListener('DOMContentLoaded', function() {
@@ -537,17 +607,91 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
             }
         }
 
-        function openSessionModal() {
-            document.getElementById('session-modal').style.display = 'block';
-            updateSessionForms();
+        async function loadSessions() {
+            try {
+                const response = await fetch(`ajax/get_sessions.php?program_id=${programData.id}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    sessionsLibrary = result.library_sessions || [];
+                    placedSessions = result.placed_sessions || [];
+                    
+                    updateLibraryDisplay();
+                    displayPlacedSessions();
+                }
+            } catch (error) {
+                console.error('Erreur chargement séances:', error);
+            }
+        }
+
+        function displayPlacedSessions() {
+            // Effacer d'abord toutes les séances placées
+            document.querySelectorAll('.session-card').forEach(card => card.remove());
+            
+            placedSessions.forEach(session => {
+                const daySlot = document.querySelector(`[data-week="${session.week}"][data-day="${session.day}"]`);
+                if (daySlot) {
+                    const sessionCard = createSessionCard(session, true);
+                    daySlot.appendChild(sessionCard);
+                }
+            });
+        }
+
+        function createSessionCard(session, isPlaced = false) {
+            const sessionCard = document.createElement('div');
+            sessionCard.className = 'session-card';
+            sessionCard.draggable = true;
+            sessionCard.dataset.sessionId = session.id;
+            
+            sessionCard.innerHTML = `
+                <div class="session-name">${session.name}</div>
+                <div class="session-details">${session.exerciseCount} exercice(s)</div>
+                <div class="session-actions">
+                    <button class="session-action-btn" onclick="editSession(${session.id})" title="Modifier">✏️</button>
+                    ${isPlaced ? 
+                        `<button class="session-action-btn" onclick="removeFromPlanning(${session.id})" title="Retirer du planning">↩️</button>` : 
+                        ''
+                    }
+                </div>
+            `;
+            
+            sessionCard.ondragstart = (e) => dragStart(e, session);
+            sessionCard.addEventListener('dragend', function() {
+                this.classList.remove('dragging');
+            });
+            
+            return sessionCard;
+        }
+
+        function openSessionModal(editingSession = null) {
+            currentEditingSession = editingSession;
+            const modal = document.getElementById('session-modal');
+            const modalTitle = document.getElementById('modal-title');
+            const saveBtn = document.getElementById('save-session-btn');
+            const countGroup = document.getElementById('sessions-count-group');
+            
+            if (editingSession) {
+                modalTitle.textContent = '✏️ Modifier la séance';
+                saveBtn.textContent = 'Sauvegarder';
+                countGroup.style.display = 'none';
+                updateSessionForms(1, editingSession);
+            } else {
+                modalTitle.textContent = '➕ Créer des séances';
+                saveBtn.textContent = 'Créer les séances';
+                countGroup.style.display = 'block';
+                updateSessionForms();
+            }
+            
+            modal.style.display = 'block';
         }
 
         function closeSessionModal() {
             document.getElementById('session-modal').style.display = 'none';
+            currentEditingSession = null;
         }
 
-        function updateSessionForms() {
-            const count = parseInt(document.getElementById('sessions-count').value);
+        function updateSessionForms(forceCount = null, sessionData = null) {
+            const count = forceCount || parseInt(document.getElementById('sessions-count').value);
             const container = document.getElementById('sessions-forms');
             container.innerHTML = '';
 
@@ -557,12 +701,16 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
                 sessionForm.style.padding = '1.5rem';
                 sessionForm.style.background = '#f8f9fa';
                 sessionForm.style.borderRadius = '8px';
+                
+                const sessionName = sessionData ? sessionData.name : `Séance ${i}`;
+                const sessionNotes = sessionData ? sessionData.notes || '' : '';
+                
                 sessionForm.innerHTML = `
                     <h4 style="margin-bottom: 1rem; color: #333;">Séance ${i}</h4>
                     
                     <div class="form-group">
                         <label for="session-name-${i}">Nom de la séance</label>
-                        <input type="text" id="session-name-${i}" placeholder="Ex: Séance Haut du Corps" value="Séance ${i}">
+                        <input type="text" id="session-name-${i}" placeholder="Ex: Séance Haut du Corps" value="${sessionName}">
                     </div>
 
                     <div class="exercises-section">
@@ -577,22 +725,36 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
 
                     <div class="form-group" style="margin-top: 1rem;">
                         <label for="session-notes-${i}">Notes pour la séance</label>
-                        <textarea id="session-notes-${i}" placeholder="Instructions particulières, conseils..." rows="3"></textarea>
+                        <textarea id="session-notes-${i}" placeholder="Instructions particulières, conseils..." rows="3">${sessionNotes}</textarea>
                     </div>
                 `;
                 container.appendChild(sessionForm);
 
-                // Ajouter un exercice par défaut
-                addExercise(i);
+                // Si on édite une séance, charger ses exercices
+                if (sessionData && sessionData.exercises) {
+                    sessionData.exercises.forEach(exercise => {
+                        addExercise(i, exercise);
+                    });
+                } else {
+                    // Ajouter un exercice par défaut
+                    addExercise(i);
+                }
             }
         }
 
-        function addExercise(sessionIndex) {
+        function addExercise(sessionIndex, exerciseData = null) {
             const exercisesList = document.getElementById(`exercises-list-${sessionIndex}`);
             const exerciseIndex = exercisesList.children.length;
             
             const exerciseDiv = document.createElement('div');
             exerciseDiv.className = 'exercise-item';
+            
+            const selectedExercise = exerciseData ? exerciseData.exercise_id : '';
+            const sets = exerciseData ? exerciseData.sets_count : '3';
+            const reps = exerciseData ? exerciseData.reps : '8-10';
+            const weight = exerciseData ? exerciseData.weight || '' : '';
+            const difficulty = exerciseData ? exerciseData.difficulty : '5';
+            
             exerciseDiv.innerHTML = `
                 <div class="exercise-details" style="flex: 1;">
                     <div class="form-row" style="margin-bottom: 0.5rem;">
@@ -600,56 +762,61 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
                             <select id="exercise-${sessionIndex}-${exerciseIndex}" style="width: 100%;">
                                 <option value="">Choisir un exercice...</option>
                                 <optgroup label="Squat">
-                                    <option value="1">Squat</option>
-                                    <option value="2">Squat Front</option>
-                                    <option value="3">Squat Box</option>
+                                    <option value="1" ${selectedExercise == 1 ? 'selected' : ''}>Squat</option>
+                                    <option value="2" ${selectedExercise == 2 ? 'selected' : ''}>Squat Front</option>
+                                    <option value="3" ${selectedExercise == 3 ? 'selected' : ''}>Squat Box</option>
                                 </optgroup>
                                 <optgroup label="Développé">
-                                    <option value="4">Développé Couché</option>
-                                    <option value="5">Développé Incliné</option>
-                                    <option value="6">Développé Haltères</option>
+                                    <option value="4" ${selectedExercise == 4 ? 'selected' : ''}>Développé Couché</option>
+                                    <option value="5" ${selectedExercise == 5 ? 'selected' : ''}>Développé Incliné</option>
+                                    <option value="6" ${selectedExercise == 6 ? 'selected' : ''}>Développé Haltères</option>
                                 </optgroup>
                                 <optgroup label="Soulevé de Terre">
-                                    <option value="7">Soulevé de Terre</option>
-                                    <option value="8">Soulevé Sumo</option>
-                                    <option value="9">Soulevé Roumain</option>
+                                    <option value="7" ${selectedExercise == 7 ? 'selected' : ''}>Soulevé de Terre</option>
+                                    <option value="8" ${selectedExercise == 8 ? 'selected' : ''}>Soulevé Sumo</option>
+                                    <option value="9" ${selectedExercise == 9 ? 'selected' : ''}>Soulevé Roumain</option>
                                 </optgroup>
                                 <optgroup label="Accessoires">
-                                    <option value="10">Rowing Barre</option>
-                                    <option value="11">Tractions</option>
-                                    <option value="12">Dips</option>
-                                    <option value="13">Extensions Triceps</option>
-                                    <option value="14">Curls Biceps</option>
-                                    <option value="15">Élévations Latérales</option>
+                                    <option value="10" ${selectedExercise == 10 ? 'selected' : ''}>Rowing Barre</option>
+                                    <option value="11" ${selectedExercise == 11 ? 'selected' : ''}>Tractions</option>
+                                    <option value="12" ${selectedExercise == 12 ? 'selected' : ''}>Dips</option>
+                                    <option value="13" ${selectedExercise == 13 ? 'selected' : ''}>Extensions Triceps</option>
+                                    <option value="14" ${selectedExercise == 14 ? 'selected' : ''}>Curls Biceps</option>
+                                    <option value="15" ${selectedExercise == 15 ? 'selected' : ''}>Élévations Latérales</option>
                                 </optgroup>
                             </select>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <input type="number" id="sets-${sessionIndex}-${exerciseIndex}" placeholder="Séries" min="1" max="10" value="3">
+                            <input type="number" id="sets-${sessionIndex}-${exerciseIndex}" placeholder="Séries" min="1" max="10" value="${sets}">
                         </div>
                     </div>
-                    <div class="form-row">
+                    <div class="form-row-4">
                         <div class="form-group" style="margin-bottom: 0;">
-                            <input type="text" id="reps-${sessionIndex}-${exerciseIndex}" placeholder="Répétitions (ex: 8-10)" value="8-10">
+                            <input type="text" id="reps-${sessionIndex}-${exerciseIndex}" placeholder="Répétitions" value="${reps}">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <input type="number" id="weight-${sessionIndex}-${exerciseIndex}" placeholder="Poids (kg)" step="0.5" value="${weight}">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <select id="difficulty-${sessionIndex}-${exerciseIndex}">
-                                <option value="3">Facile (3/10)</option>
-                                <option value="5" selected>Modéré (5/10)</option>
-                                <option value="7">Difficile (7/10)</option>
-                                <option value="9">Très difficile (9/10)</option>
+                                <option value="3" ${difficulty == 3 ? 'selected' : ''}>Facile (3/10)</option>
+                                <option value="5" ${difficulty == 5 ? 'selected' : ''}>Modéré (5/10)</option>
+                                <option value="7" ${difficulty == 7 ? 'selected' : ''}>Difficile (7/10)</option>
+                                <option value="9" ${difficulty == 9 ? 'selected' : ''}>Très difficile (9/10)</option>
                             </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <button class="remove-exercise" onclick="this.parentElement.parentElement.parentElement.parentElement.remove()">×</button>
                         </div>
                     </div>
                 </div>
-                <button class="remove-exercise" onclick="this.parentElement.remove()">×</button>
             `;
             
             exercisesList.appendChild(exerciseDiv);
         }
 
-        function createSessions() {
-            const count = parseInt(document.getElementById('sessions-count').value);
+        async function createSessions() {
+            const count = currentEditingSession ? 1 : parseInt(document.getElementById('sessions-count').value);
             const newSessions = [];
 
             for (let i = 1; i <= count; i++) {
@@ -662,6 +829,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
                     const exerciseSelect = document.getElementById(`exercise-${i}-${j}`);
                     const sets = document.getElementById(`sets-${i}-${j}`).value;
                     const reps = document.getElementById(`reps-${i}-${j}`).value;
+                    const weight = document.getElementById(`weight-${i}-${j}`).value;
                     const difficulty = document.getElementById(`difficulty-${i}-${j}`).value;
                     
                     if (exerciseSelect && exerciseSelect.value) {
@@ -670,6 +838,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
                             exercise_name: exerciseSelect.options[exerciseSelect.selectedIndex].text,
                             sets: sets,
                             reps: reps,
+                            weight: weight,
                             difficulty: difficulty
                         });
                     }
@@ -677,23 +846,142 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
 
                 if (exercises.length > 0) {
                     const session = {
-                        id: Date.now() + i, // ID temporaire
                         name: sessionName,
                         notes: sessionNotes,
-                        exercises: exercises,
-                        exerciseCount: exercises.length
+                        exercises: exercises
                     };
                     
                     newSessions.push(session);
-                    sessionsLibrary.push(session);
                 }
             }
 
-            updateLibraryDisplay();
-            closeSessionModal();
+            if (newSessions.length === 0) {
+                alert('Veuillez ajouter au moins un exercice à vos séances');
+                return;
+            }
+
+            try {
+                const saveBtn = document.getElementById('save-session-btn');
+                saveBtn.disabled = true;
+                saveBtn.textContent = '⏳ Sauvegarde...';
+
+                let response;
+                if (currentEditingSession) {
+                    // Mode édition
+                    response = await fetch('ajax/update_session.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            session_id: currentEditingSession.id,
+                            name: newSessions[0].name,
+                            notes: newSessions[0].notes,
+                            exercises: newSessions[0].exercises
+                        })
+                    });
+                } else {
+                    // Mode création
+                    response = await fetch('ajax/create_sessions.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            program_id: programData.id,
+                            sessions: newSessions
+                        })
+                    });
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    closeSessionModal();
+                    await loadSessions(); // Recharger les séances
+                    
+                    if (currentEditingSession) {
+                        alert('Séance modifiée avec succès !');
+                    } else {
+                        alert(`${newSessions.length} séance(s) créée(s) avec succès !`);
+                    }
+                } else {
+                    alert('Erreur: ' + result.error);
+                }
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur de connexion');
+            } finally {
+                const saveBtn = document.getElementById('save-session-btn');
+                saveBtn.disabled = false;
+                saveBtn.textContent = currentEditingSession ? 'Sauvegarder' : 'Créer les séances';
+            }
+        }
+
+        async function deleteSession(sessionId) {
+            if (!confirm('Êtes-vous sûr de vouloir supprimer cette séance ?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('ajax/delete_session.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    await loadSessions(); // Recharger les séances
+                    alert('Séance supprimée');
+                } else {
+                    alert('Erreur: ' + result.error);
+                }
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur de connexion');
+            }
+        }
+
+        async function editSession(sessionId) {
+            const session = sessionsLibrary.find(s => s.id == sessionId) || 
+                           placedSessions.find(s => s.id == sessionId);
             
-            if (newSessions.length > 0) {
-                alert(`${newSessions.length} séance(s) créée(s) avec succès !`);
+            if (session) {
+                openSessionModal(session);
+            }
+        }
+
+        async function removeFromPlanning(sessionId) {
+            try {
+                const response = await fetch('ajax/remove_session_from_planning.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    await loadSessions(); // Recharger les séances
+                } else {
+                    alert('Erreur: ' + result.error);
+                }
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur de connexion');
             }
         }
 
@@ -718,17 +1006,16 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
                 sessionDiv.draggable = true;
                 sessionDiv.ondragstart = (e) => dragStart(e, session);
                 sessionDiv.innerHTML = `
-                    <div class="session-name">${session.name}</div>
+                    <div class="session-name" style="margin-bottom: 0.5rem;">${session.name}</div>
                     <div class="session-details">${session.exerciseCount} exercice(s)</div>
                     ${session.notes ? `<div style="font-size: 0.7rem; margin-top: 0.25rem; opacity: 0.8;">${session.notes}</div>` : ''}
+                    <div class="library-session-actions">
+                        <button class="library-action-btn edit" onclick="editSession(${session.id})" title="Modifier">✏️</button>
+                        <button class="library-action-btn" onclick="deleteSession(${session.id})" title="Supprimer">×</button>
+                    </div>
                 `;
                 container.appendChild(sessionDiv);
             });
-        }
-
-        function loadSessions() {
-            // TODO: Charger les séances existantes depuis la base de données
-            updateLibraryDisplay();
         }
 
         // Gestion du drag and drop
@@ -742,7 +1029,7 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
             event.target.classList.add('drop-zone');
         }
 
-        function drop(event) {
+        async function drop(event) {
             event.preventDefault();
             event.target.classList.remove('drop-zone');
             
@@ -750,26 +1037,33 @@ $total_sessions = $program['duration_weeks'] * $program['sessions_per_week'];
             const week = event.target.dataset.week;
             const day = event.target.dataset.day;
             
-            // Créer la carte de séance dans le planning
-            const sessionCard = document.createElement('div');
-            sessionCard.className = 'session-card';
-            sessionCard.innerHTML = `
-                <div class="session-name">${sessionData.name}</div>
-                <div class="session-details">${sessionData.exerciseCount} exercices</div>
-            `;
-            
-            // Ajouter les événements pour pouvoir redéplacer
-            sessionCard.draggable = true;
-            sessionCard.ondragstart = (e) => dragStart(e, sessionData);
-            sessionCard.addEventListener('dragend', function() {
-                this.classList.remove('dragging');
-            });
-            
-            // Ajouter au slot
-            event.target.appendChild(sessionCard);
-            
-            // TODO: Sauvegarder en base de données
-            console.log(`Séance "${sessionData.name}" placée en semaine ${week}, jour ${day}`);
+            // Sauvegarder en base de données
+            try {
+                const response = await fetch('ajax/place_session.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionData.id,
+                        week: week,
+                        day: day
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Recharger les séances pour mettre à jour l'affichage
+                    await loadSessions();
+                } else {
+                    alert('Erreur: ' + result.error);
+                }
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                alert('Erreur de placement');
+            }
         }
 
         // Nettoyer les classes CSS après drag
