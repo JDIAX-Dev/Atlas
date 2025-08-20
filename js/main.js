@@ -516,7 +516,6 @@ function createProgram(athleteId) {
 function editProgram(programId) {
     window.location.href = `program_planning.php?program_id=${programId}`;
 }
-let sessionsLibrary = [];
 
 // Remplacer la fonction createSessions() dans program_planning.php
 
@@ -535,7 +534,6 @@ async function createSessions() {
             const exerciseSelect = document.getElementById(`exercise-${i}-${j}`);
             const sets = document.getElementById(`sets-${i}-${j}`).value;
             const reps = document.getElementById(`reps-${i}-${j}`).value;
-            const weight = document.getElementById(`weight-${i}-${j}`).value;
             const difficulty = document.getElementById(`difficulty-${i}-${j}`).value;
             
             if (exerciseSelect && exerciseSelect.value) {
@@ -544,7 +542,6 @@ async function createSessions() {
                     exercise_name: exerciseSelect.options[exerciseSelect.selectedIndex].text,
                     sets: parseInt(sets),
                     reps: reps,
-                    weight: weight ? parseFloat(weight) : null,
                     difficulty: parseInt(difficulty),
                     notes: ''
                 });
@@ -587,11 +584,8 @@ async function createSessions() {
 
         if (result.success) {
             // Ajouter les séances créées à la bibliothèque
-            result.sessions.forEach((session, idx) => {
-                sessionsLibrary.push({
-                    ...session,
-                    exercises: newSessions[idx].exercises
-                });
+            result.sessions.forEach(session => {
+                sessionsLibrary.push(session);
             });
 
             updateLibraryDisplay();
@@ -650,48 +644,19 @@ async function loadSessions() {
 function createSessionCard(sessionData) {
     const sessionCard = document.createElement('div');
     sessionCard.className = 'session-card';
-
-    let details = '';
-    if (sessionData.exercises && sessionData.exercises.length) {
-        details = sessionData.exercises.map(ex => {
-            const weightPart = ex.weight ? ` @ ${ex.weight} kg` : '';
-            return `${ex.exercise_name || ''}: ${ex.sets}x${ex.reps}${weightPart}`;
-        }).join('<br>');
-    } else {
-        details = `${sessionData.exerciseCount} exercice(s)`;
-    }
-
     sessionCard.innerHTML = `
         <div class="session-name">${sessionData.name}</div>
-        <div class="session-details">${details}</div>
+        <div class="session-details">${sessionData.exerciseCount} exercice(s)</div>
     `;
-
+    
     // Ajouter les événements drag and drop
     sessionCard.draggable = true;
     sessionCard.ondragstart = (e) => dragStart(e, sessionData);
     sessionCard.addEventListener('dragend', function() {
         this.classList.remove('dragging');
     });
-
+    
     return sessionCard;
-}
-
-// Met à jour l'affichage de la bibliothèque des séances
-function updateLibraryDisplay() {
-    const container = document.getElementById('library-content');
-    if (!container) return;
-
-    if (sessionsLibrary.length === 0) {
-        container.innerHTML = `<div class="empty-state"><p>Aucune séance créée</p></div>`;
-        return;
-    }
-
-    container.innerHTML = '';
-    sessionsLibrary.forEach(session => {
-        const card = createSessionCard(session);
-        card.classList.add('library-session');
-        container.appendChild(card);
-    });
 }
 
 // Mettre à jour la fonction drop pour sauvegarder en BDD
@@ -799,9 +764,6 @@ async function addExercise(sessionIndex) {
             <div class="form-row">
                 <div class="form-group" style="margin-bottom: 0;">
                     <input type="text" id="reps-${sessionIndex}-${exerciseIndex}" placeholder="Répétitions (ex: 8-10)" value="8-10">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <input type="number" id="weight-${sessionIndex}-${exerciseIndex}" placeholder="Poids (kg)" min="0" step="0.5">
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <select id="difficulty-${sessionIndex}-${exerciseIndex}">
