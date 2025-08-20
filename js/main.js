@@ -516,3 +516,267 @@ function createProgram(athleteId) {
 function editProgram(programId) {
     window.location.href = `program_planning.php?program_id=${programId}`;
 }
+
+// Remplacer la fonction createSessions() dans program_planning.php
+
+async function createSessions() {
+    const count = parseInt(document.getElementById('sessions-count').value);
+    const newSessions = [];
+
+    // Collecter les données des séances
+    for (let i = 1; i <= count; i++) {
+        const sessionName = document.getElementById(`session-name-${i}`).value || `Séance ${i}`;
+        const sessionNotes = document.getElementById(`session-notes-${i}`).value;
+        const exercisesList = document.getElementById(`exercises-list-${i}`);
+        
+        const exercises = [];
+        for (let j = 0; j < exercisesList.children.length; j++) {
+            const exerciseSelect = document.getElementById(`exercise-${i}-${j}`);
+            const sets = document.getElementById(`sets-${i}-${j}`).value;
+            const reps = document.getElementById(`reps-${i}-${j}`).value;
+            const difficulty = document.getElementById(`difficulty-${i}-${j}`).value;
+            
+            if (exerciseSelect && exerciseSelect.value) {
+                exercises.push({
+                    exercise_id: exerciseSelect.value,
+                    exercise_name: exerciseSelect.options[exerciseSelect.selectedIndex].text,
+                    sets: parseInt(sets),
+                    reps: reps,
+                    difficulty: parseInt(difficulty),
+                    notes: ''
+                });
+            }
+        }
+
+        if (exercises.length > 0) {
+            newSessions.push({
+                name: sessionName,
+                notes: sessionNotes,
+                exercises: exercises
+            });
+        }
+    }
+
+    if (newSessions.length === 0) {
+        alert('Veuillez ajouter au moins un exercice à chaque séance');
+        return;
+    }
+
+    try {
+        // Désactiver le bouton pendant la création
+        const createBtn = document.querySelector('.btn-primary');
+        const originalText = createBtn.textContent;
+        createBtn.disabled = true;
+        createBtn.textContent = '⏳ Création...';
+
+        const response = await fetch('ajax/create_sessions.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                program_id: programData.id,
+                sessions: newSessions
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            // Ajouter les séances créées à la bibliothèque
+            result.sessions.forEach(session => {
+                sessionsLibrary.push(session);
+            });
+
+            updateLibraryDisplay();
+            closeSessionModal();
+            alert(`${result.sessions.length} séance(s) créée(s) avec succès !`);
+        } else {
+            alert('Erreur lors de la création des séances: ' + (result.error || 'Erreur inconnue'));
+        }
+
+        // Réactiver le bouton
+        createBtn.disabled = false;
+        createBtn.textContent = originalText;
+
+    } catch (error) {
+        console.error('Erreur:', error);
+        alert('Erreur de connexion');
+        
+        // Réactiver le bouton en cas d'erreur
+        const createBtn = document.querySelector('.btn-primary');
+        createBtn.disabled = false;
+        createBtn.textContent = 'Créer les séances';
+    }
+}
+
+// Remplacer la fonction loadSessions()
+async function loadSessions() {
+    try {
+        const response = await fetch(`ajax/get_sessions.php?program_id=${programData.id}`);
+        const result = await response.json();
+
+        if (result.success) {
+            // Charger les séances de la bibliothèque
+            sessionsLibrary = result.library_sessions || [];
+            
+            // Placer les séances déjà positionnées dans le planning
+            if (result.placed_sessions) {
+                result.placed_sessions.forEach(session => {
+                    const daySlot = document.querySelector(`[data-week="${session.week}"][data-day="${session.day}"]`);
+                    if (daySlot) {
+                        const sessionCard = createSessionCard(session);
+                        daySlot.appendChild(sessionCard);
+                    }
+                });
+            }
+
+            updateLibraryDisplay();
+        } else {
+            console.error('Erreur lors du chargement des séances:', result.error);
+        }
+    } catch (error) {
+        console.error('Erreur lors du chargement des séances:', error);
+    }
+}
+
+// Nouvelle fonction pour créer une carte de séance
+function createSessionCard(sessionData) {
+    const sessionCard = document.createElement('div');
+    sessionCard.className = 'session-card';
+    sessionCard.innerHTML = `
+        <div class="session-name">${sessionData.name}</div>
+        <div class="session-details">${sessionData.exerciseCount} exercice(s)</div>
+    `;
+    
+    // Ajouter les événements drag and drop
+    sessionCard.draggable = true;
+    sessionCard.ondragstart = (e) => dragStart(e, sessionData);
+    sessionCard.addEventListener('dragend', function() {
+        this.classList.remove('dragging');
+    });
+    
+    return sessionCard;
+}
+
+// Mettre à jour la fonction drop pour sauvegarder en BDD
+async function drop(event) {
+    event.preventDefault();
+    event.target.classList.remove('drop-zone');
+    
+    const sessionData = JSON.parse(event.dataTransfer.getData("text/plain"));
+    const week = parseInt(event.target.dataset.week);
+    const day = parseInt(event.target.dataset.day);
+    
+    // Créer la carte de séance dans le planning
+    const sessionCard = createSessionCard(sessionData);
+    event.target.appendChild(sessionCard);
+    
+    // Sauvegarder la position en base de données
+    try {
+        const response = await fetch('ajax/place_session.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                session_id: sessionData.id,
+                week: week,
+                day: day
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+            console.error('Erreur lors de la sauvegarde:', result.error);
+            // Optionnel: supprimer la carte en cas d'erreur
+            sessionCard.remove();
+            alert('Erreur lors de la sauvegarde de la position');
+        }
+    } catch (error) {
+        console.error('Erreur lors de la sauvegarde:', error);
+        alert('Erreur de connexion lors de la sauvegarde');
+    }
+}
+
+// Charger les exercices disponibles dynamiquement
+async function loadExercises() {
+    try {
+        const response = await fetch('ajax/get_exercises.php');
+        const result = await response.json();
+        
+        if (result.success) {
+            return result.grouped;
+        }
+        return {};
+    } catch (error) {
+        console.error('Erreur lors du chargement des exercices:', error);
+        return {};
+    }
+}
+
+// Mettre à jour la fonction addExercise pour utiliser les vrais exercices
+async function addExercise(sessionIndex) {
+    const exercisesList = document.getElementById(`exercises-list-${sessionIndex}`);
+    const exerciseIndex = exercisesList.children.length;
+    
+    // Charger les exercices si pas déjà fait
+    if (!window.exercisesData) {
+        window.exercisesData = await loadExercises();
+    }
+    
+    // Créer les options d'exercices
+    let exerciseOptions = '<option value="">Choisir un exercice...</option>';
+    
+    const categoryLabels = {
+        'squat': 'Squat',
+        'bench': 'Développé',
+        'deadlift': 'Soulevé de Terre',
+        'accessory': 'Accessoires'
+    };
+    
+    Object.keys(window.exercisesData).forEach(category => {
+        const categoryLabel = categoryLabels[category] || category;
+        exerciseOptions += `<optgroup label="${categoryLabel}">`;
+        
+        window.exercisesData[category].forEach(exercise => {
+            exerciseOptions += `<option value="${exercise.id}">${exercise.name}</option>`;
+        });
+        
+        exerciseOptions += '</optgroup>';
+    });
+    
+    const exerciseDiv = document.createElement('div');
+    exerciseDiv.className = 'exercise-item';
+    exerciseDiv.innerHTML = `
+        <div class="exercise-details" style="flex: 1;">
+            <div class="form-row" style="margin-bottom: 0.5rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <select id="exercise-${sessionIndex}-${exerciseIndex}" style="width: 100%;">
+                        ${exerciseOptions}
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <input type="number" id="sets-${sessionIndex}-${exerciseIndex}" placeholder="Séries" min="1" max="10" value="3">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <input type="text" id="reps-${sessionIndex}-${exerciseIndex}" placeholder="Répétitions (ex: 8-10)" value="8-10">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <select id="difficulty-${sessionIndex}-${exerciseIndex}">
+                        <option value="3">Facile (3/10)</option>
+                        <option value="5" selected>Modéré (5/10)</option>
+                        <option value="7">Difficile (7/10)</option>
+                        <option value="9">Très difficile (9/10)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <button class="remove-exercise" onclick="this.parentElement.remove()">×</button>
+    `;
+    
+    exercisesList.appendChild(exerciseDiv);
+}
